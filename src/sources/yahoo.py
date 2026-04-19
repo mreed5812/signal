@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 import yfinance as yf
 from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -45,12 +46,17 @@ class YahooFinanceSource(DataSource):
 
     @retry(wait=wait_exponential(multiplier=1, min=4, max=60), stop=stop_after_attempt(5))
     def _download(self, ticker: str, start: datetime, end: datetime) -> pd.DataFrame:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (compatible; btc-pipeline/1.0)"
+        })
         df = yf.download(
             ticker,
             start=start.strftime("%Y-%m-%d"),
             end=end.strftime("%Y-%m-%d"),
             progress=False,
             auto_adjust=True,
+            session=session,
         )
         return df
 

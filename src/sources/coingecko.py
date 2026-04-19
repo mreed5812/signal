@@ -58,7 +58,7 @@ class CoinGeckoSource(DataSource):
 
     def _headers(self) -> dict[str, str]:
         if self.api_key:
-            return {"x-cg-pro-api-key": self.api_key}
+            return {"x-cg-demo-api-key": self.api_key}
         return {}
 
     @retry(wait=wait_exponential(multiplier=1, min=4, max=60), stop=stop_after_attempt(5))
