@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # API keys
     news_api_key: str = ""
     coingecko_api_key: str = ""  # optional — free tier works without it
+    twelve_data_api_key: str = ""
 
     # App
     log_level: str = "INFO"

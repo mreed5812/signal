@@ -1,13 +1,16 @@
-"""Yahoo Finance ingestion via yfinance.
+"""Twelve Data ingestion for macro market instruments.
+
+Replaces yfinance (Yahoo Finance was blocking ARM64/Pi IPs).
 
 Free-tier limits:
-- No official rate limit documented; informal throttling after ~2,000 req/day.
-- Historical depth: full history available for most instruments.
-- What happens when throttled: yfinance raises an exception; tenacity retries.
+- 800 API credits/day, 8 requests/minute.
+- Each time_series call costs 1 credit.
+- Running once daily uses only 6 credits/day.
 
 Instruments fetched:
-  Forex/commodities: DX-Y.NYB (DXY), EURUSD=X, JPY=X, GC=F (Gold)
-  Indices: ^GSPC (S&P 500), ^IXIC (NASDAQ)
+  Forex: EUR/USD, USD/JPY
+  Commodities: XAU/USD (Gold)
+  Indices: SPX (S&P 500), IXIC (NASDAQ), DXY (US Dollar Index)
 """
 
 import time
@@ -15,101 +18,128 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
-import yfinance as yf
 from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from src.common.config import settings
 from src.common.database import get_connection
 from src.common.logging import get_logger
 from src.sources.base import DataSource
 
 log = get_logger(__name__)
 
-_FOREX_TICKERS = ["DX-Y.NYB", "EURUSD=X", "JPY=X", "GC=F"]
-_INDEX_TICKERS = ["^GSPC", "^IXIC"]
-_ALL_TICKERS = _FOREX_TICKERS + _INDEX_TICKERS
+_BASE_URL = "https://api.twelvedata.com"
 
-_CATEGORY_MAP: dict[str, str] = {
-    "DX-Y.NYB": "forex",
-    "EURUSD=X": "forex",
-    "JPY=X": "forex",
-    "GC=F": "commodity",
-    "^GSPC": "index",
-    "^IXIC": "index",
-}
+_TICKERS: list[dict[str, str]] = [
+    {"symbol": "DXY",     "category": "index"},
+    {"symbol": "EUR/USD", "category": "forex"},
+    {"symbol": "USD/JPY", "category": "forex"},
+    {"symbol": "XAU/USD", "category": "commodity"},
+    {"symbol": "SPX",     "category": "index"},
+    {"symbol": "IXIC",    "category": "index"},
+]
+
+_INSERT_SQL = text(
+    """
+    INSERT INTO market_data
+      (symbol, interval, category, timestamp, open, high, low, close, volume, source)
+    VALUES
+      (:symbol, :interval, :category,
+       :timestamp, :open, :high, :low, :close, :volume, :source)
+    ON CONFLICT (symbol, interval, timestamp) DO NOTHING
+    """
+)
 
 
 class YahooFinanceSource(DataSource):
-    """Fetches forex, commodity, and index OHLCV from Yahoo Finance."""
+    """Fetches forex, commodity, and index OHLCV from Twelve Data."""
 
     name = "yahoo"
 
-    @retry(wait=wait_exponential(multiplier=1, min=4, max=60), stop=stop_after_attempt(5))
-    def _download(self, ticker: str, start: datetime, end: datetime) -> pd.DataFrame:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (compatible; btc-pipeline/1.0)"
-        })
-        df = yf.download(
-            ticker,
-            start=start.strftime("%Y-%m-%d"),
-            end=end.strftime("%Y-%m-%d"),
-            progress=False,
-            auto_adjust=True,
-            session=session,
+    @retry(
+        wait=wait_exponential(multiplier=1, min=10, max=60),
+        stop=stop_after_attempt(3),
+    )
+    def _fetch_series(
+        self, symbol: str, start: datetime, end: datetime
+    ) -> list[dict]:
+        resp = requests.get(
+            f"{_BASE_URL}/time_series",
+            params={
+                "symbol": symbol,
+                "interval": "1day",
+                "start_date": start.strftime("%Y-%m-%d"),
+                "end_date": end.strftime("%Y-%m-%d"),
+                "outputsize": 5000,
+                "apikey": settings.twelve_data_api_key,
+            },
+            timeout=15,
         )
-        return df
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("status") == "error":
+            log.error(
+                "twelve_data_error",
+                symbol=symbol,
+                message=data.get("message"),
+            )
+            return []
+        return data.get("values", [])
 
-    def _normalize(self, ticker: str, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df
-        df = df.reset_index()
-        # yfinance returns MultiIndex columns when downloading single ticker with auto_adjust
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [c[0].lower() if c[1] == "" else c[0].lower() for c in df.columns]
-        else:
-            df.columns = [c.lower() for c in df.columns]
-
-        df = df.rename(columns={"date": "timestamp"})
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(timezone.utc)
-        df["symbol"] = ticker
-        df["interval"] = "1d"
-        df["category"] = _CATEGORY_MAP.get(ticker, "other")
-        df["source"] = self.name
-        return df[["symbol", "interval", "category", "timestamp", "open", "high", "low", "close", "volume", "source"]]
+    def _normalize(
+        self, symbol: str, category: str, values: list[dict]
+    ) -> pd.DataFrame:
+        if not values:
+            return pd.DataFrame()
+        rows = []
+        for v in values:
+            rows.append({
+                "symbol": symbol,
+                "interval": "1d",
+                "category": category,
+                "timestamp": datetime.strptime(
+                    v["datetime"], "%Y-%m-%d"
+                ).replace(tzinfo=timezone.utc),
+                "open": float(v["open"]),
+                "high": float(v["high"]),
+                "low": float(v["low"]),
+                "close": float(v["close"]),
+                "volume": float(v.get("volume") or 0),
+                "source": self.name,
+            })
+        return pd.DataFrame(rows)
 
     def fetch_historical(self, start: datetime, end: datetime) -> pd.DataFrame:
         frames = []
-        for ticker in _ALL_TICKERS:
-            log.info("fetching_historical", ticker=ticker)
+        for ticker in _TICKERS:
+            log.info("fetching_historical", ticker=ticker["symbol"])
             try:
-                raw = self._download(ticker, start, end)
-                normalized = self._normalize(ticker, raw)
-                if not normalized.empty:
-                    frames.append(normalized)
-            except Exception as exc:
-                log.error("fetch_failed", ticker=ticker, error=str(exc))
-            time.sleep(1)
+                values = self._fetch_series(
+                    ticker["symbol"], start, end
+                )
+                df = self._normalize(
+                    ticker["symbol"], ticker["category"], values
+                )
+                if not df.empty:
+                    frames.append(df)
+            except Exception as exc:  # noqa: BLE001
+                log.error(
+                    "fetch_failed",
+                    ticker=ticker["symbol"],
+                    error=str(exc),
+                )
+            time.sleep(8)  # 8 req/min free-tier limit
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     def fetch_latest(self) -> pd.DataFrame:
         end = datetime.now(tz=timezone.utc)
-        start = end - timedelta(days=5)  # 5-day buffer for weekends/holidays
+        start = end - timedelta(days=5)
         return self.fetch_historical(start, end)
 
     def store(self, df: pd.DataFrame) -> int:
         if df.empty:
             return 0
         records = df.to_dict("records")
-        sql = text(
-            """
-            INSERT INTO market_data
-              (symbol, interval, category, timestamp, open, high, low, close, volume, source)
-            VALUES
-              (:symbol, :interval, :category, :timestamp, :open, :high, :low, :close, :volume, :source)
-            ON CONFLICT (symbol, interval, timestamp) DO NOTHING
-            """
-        )
         with get_connection() as conn:
-            result = conn.execute(sql, records)
+            result = conn.execute(_INSERT_SQL, records)
         return result.rowcount

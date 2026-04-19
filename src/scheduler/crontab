@@ -6,7 +6,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 
 # ── Ingestion (every 15 min, staggered) ──────────────────────────────────────
 0,15,30,45 * * * *   python3 -m src.sources.coingecko_runner  >> /var/log/cron.log 2>&1
-2,17,32,47 * * * *   python3 -m src.sources.yahoo_runner      >> /var/log/cron.log 2>&1
+0 22 * * 1-5         python3 -m src.sources.yahoo_runner      >> /var/log/cron.log 2>&1
 4,19,34,49 * * * *   python3 -m src.sources.newsapi_runner    >> /var/log/cron.log 2>&1
 6,21,36,51 * * * *   python3 -m src.sources.onchain_runner    >> /var/log/cron.log 2>&1
 
