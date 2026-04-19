@@ -31,12 +31,12 @@ log = get_logger(__name__)
 _BASE_URL = "https://api.twelvedata.com"
 
 _TICKERS: list[dict[str, str]] = [
-    {"symbol": "DXY",     "category": "index"},
+    {"symbol": "UUP",     "category": "index"},      # Dollar Index proxy ETF
     {"symbol": "EUR/USD", "category": "forex"},
     {"symbol": "USD/JPY", "category": "forex"},
     {"symbol": "XAU/USD", "category": "commodity"},
-    {"symbol": "SPX",     "category": "index"},
-    {"symbol": "IXIC",    "category": "index"},
+    {"symbol": "SPY",     "category": "index"},       # S&P 500 proxy ETF
+    {"symbol": "QQQ",     "category": "index"},       # NASDAQ-100 proxy ETF
 ]
 
 _INSERT_SQL = text(
