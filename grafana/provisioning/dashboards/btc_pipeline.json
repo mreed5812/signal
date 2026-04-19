@@ -1,0 +1,49 @@
+{
+  "title": "BTC Pipeline",
+  "uid": "btc-pipeline",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1, "title": "Job Success Rate", "type": "stat",
+      "gridPos": {"x":0,"y":0,"w":6,"h":4},
+      "targets": [{"expr": "sum(increase(btc_pipeline_job_runs_total{status=\"success\"}[1h])) / sum(increase(btc_pipeline_job_runs_total[1h]))", "legendFormat": "Success Rate"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"steps": [{"color":"red","value":0},{"color":"yellow","value":0.8},{"color":"green","value":0.95}]}}}
+    },
+    {
+      "id": 2, "title": "Model RMSE", "type": "stat",
+      "gridPos": {"x":6,"y":0,"w":6,"h":4},
+      "targets": [{"expr": "btc_pipeline_model_rmse", "legendFormat": "RMSE (USD)"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 3, "title": "Prediction Error (USD)", "type": "stat",
+      "gridPos": {"x":12,"y":0,"w":6,"h":4},
+      "targets": [{"expr": "btc_pipeline_prediction_error_usd", "legendFormat": "Error"}],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 4, "title": "Rows Ingested / 15m", "type": "timeseries",
+      "gridPos": {"x":0,"y":4,"w":12,"h":8},
+      "targets": [{"expr": "increase(btc_pipeline_rows_ingested_total[15m])", "legendFormat": "{{source}}"}]
+    },
+    {
+      "id": 5, "title": "Job Duration (p95)", "type": "timeseries",
+      "gridPos": {"x":12,"y":4,"w":12,"h":8},
+      "targets": [{"expr": "histogram_quantile(0.95, rate(btc_pipeline_job_duration_seconds_bucket[15m]))", "legendFormat": "{{job}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 6, "title": "API Request Rate", "type": "timeseries",
+      "gridPos": {"x":0,"y":12,"w":12,"h":8},
+      "targets": [{"expr": "rate(http_requests_total[1m])", "legendFormat": "{{handler}} {{status}}"}]
+    },
+    {
+      "id": 7, "title": "Data Freshness (seconds since last ingest)", "type": "timeseries",
+      "gridPos": {"x":12,"y":12,"w":12,"h":8},
+      "targets": [{"expr": "time() - btc_pipeline_last_ingestion_timestamp_seconds", "legendFormat": "{{source}}"}],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"steps": [{"color":"green","value":0},{"color":"yellow","value":900},{"color":"red","value":1800}]}}}
+    }
+  ]
+}

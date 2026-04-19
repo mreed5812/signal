@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTC Pipeline Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117; --surface: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #f7931a;
+      --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 24px; }
+    header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+    .kpi { display: flex; flex-direction: column; gap: 2px; }
+    .kpi-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .kpi-value { font-size: 22px; font-weight: 700; }
+    .kpi-sub { font-size: 11px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .card h2 { font-size: 13px; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .card.full { grid-column: 1 / -1; }
+    canvas { max-height: 300px; }
+    .controls { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    select, button { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    button.active, button:hover { border-color: var(--accent); color: var(--accent); }
+    .pipeline-health { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+    .job-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
+    .job-card .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .status.ok { background: var(--green); }
+    .status.fail { background: var(--red); }
+    .status.unknown { background: var(--muted); }
+    .heatmap-grid { display: grid; gap: 2px; margin-top: 8px; overflow-x: auto; }
+    .heatmap-cell { display: flex; align-items: center; justify-content: center; font-size: 10px; border-radius: 2px; padding: 6px; cursor: default; }
+    .toggle-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .toggle-btn { font-size: 11px; padding: 3px 8px; border-radius: 12px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } .card.full { grid-column: 1; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>⛓ BTC Pipeline</h1>
+  <div class="kpi" id="kpi-price">
+    <span class="kpi-label">BTC Price</span>
+    <span class="kpi-value">—</span>
+    <span class="kpi-sub">loading...</span>
+  </div>
+  <div class="kpi" id="kpi-prediction">
+    <span class="kpi-label">Next-Day Prediction</span>
+    <span class="kpi-value">—</span>
+    <span class="kpi-sub">—</span>
+  </div>
+  <div class="kpi" id="kpi-model">
+    <span class="kpi-label">Model</span>
+    <span class="kpi-value" style="font-size:14px">—</span>
+    <span class="kpi-sub">—</span>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- Price + Prediction chart -->
+  <div class="card full">
+    <h2>Price History &amp; Predictions</h2>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <!-- Multi-asset overlay -->
+  <div class="card full">
+    <h2>Multi-Asset Overlay</h2>
+    <div class="controls">
+      <select id="windowSelect">
+        <option value="30">30 days</option>
+        <option value="90" selected>90 days</option>
+        <option value="180">180 days</option>
+        <option value="365">1 year</option>
+      </select>
+      <select id="normSelect">
+        <option value="pct">% Change from start</option>
+        <option value="zscore">Z-score</option>
+      </select>
+    </div>
+    <div class="toggle-row" id="seriesToggle"></div>
+    <canvas id="overlayChart"></canvas>
+  </div>
+
+  <!-- Rolling correlation heatmap -->
+  <div class="card">
+    <h2>Rolling Correlation vs BTC</h2>
+    <div class="controls">
+      <label style="color:var(--muted);font-size:11px">Window:
+        <select id="corrWindow">
+          <option value="14">14d</option>
+          <option value="30" selected>30d</option>
+          <option value="60">60d</option>
+          <option value="90">90d</option>
+        </select>
+      </label>
+    </div>
+    <div id="heatmap"></div>
+  </div>
+
+  <!-- Feature importance -->
+  <div class="card">
+    <h2>Feature Importance (Top 15)</h2>
+    <canvas id="importanceChart"></canvas>
+  </div>
+
+  <!-- Sentiment trend -->
+  <div class="card">
+    <h2>Sentiment Trend</h2>
+    <canvas id="sentimentChart"></canvas>
+  </div>
+
+  <!-- Pipeline health -->
+  <div class="card">
+    <h2>Pipeline Health</h2>
+    <div class="pipeline-health" id="pipelineHealth">Loading...</div>
+  </div>
+</div>
+
+<script>
+const API = '';
+const COLORS = {
+  BTC:'#f7931a', ETH:'#627eea', 'GC=F':'#ffd700', 'DX-Y.NYB':'#3fb950',
+  '^GSPC':'#58a6ff', '^IXIC':'#bc8cff', 'hash-rate':'#ff6e40',
+  'n-transactions':'#26c6da', sentiment:'#f48fb1',
+};
+
+let overlayChart, priceChart, sentimentChart, importanceChart;
+let corrData = {};
+let activeOverlaySeries = new Set(['BTC','ETH','GC=F','^GSPC']);
+
+async function fetchJSON(path) {
+  try { const r = await fetch(API + path); if (!r.ok) return null; return r.json(); }
+  catch { return null; }
+}
+
+function fmt(n, decimals=2) {
+  if (n == null) return '—';
+  return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+}
+
+async function loadHeader() {
+  const [price, pred, meta] = await Promise.all([
+    fetchJSON('/api/price/current'),
+    fetchJSON('/api/prediction/latest'),
+    fetchJSON('/api/model/metadata'),
+  ]);
+
+  if (price) {
+    const el = document.getElementById('kpi-price');
+    el.querySelector('.kpi-value').textContent = fmt(price.price, 0);
+    el.querySelector('.kpi-sub').textContent = new Date(price.timestamp).toLocaleString();
+  }
+  if (pred) {
+    const el = document.getElementById('kpi-prediction');
+    el.querySelector('.kpi-value').textContent = fmt(pred.predicted_price, 0);
+    const ci = pred.confidence_lower ? `[${fmt(pred.confidence_lower,0)} – ${fmt(pred.confidence_upper,0)}]` : '';
+    el.querySelector('.kpi-sub').textContent = `${pred.target_date} ${ci}`;
+  }
+  if (meta) {
+    const el = document.getElementById('kpi-model');
+    el.querySelector('.kpi-value').textContent = `RMSE ${fmt(meta.rmse, 0)}`;
+    el.querySelector('.kpi-sub').textContent = `v${meta.version.slice(0,8)} · dir acc ${(meta.directional_accuracy*100).toFixed(1)}%`;
+    loadImportanceChart(meta.feature_importances);
+  }
+}
+
+async function loadPriceChart() {
+  const [hist, pred] = await Promise.all([
+    fetchJSON('/api/correlations?days=90&window=30'),
+    fetchJSON('/api/prediction/history?days=90'),
+  ]);
+  if (!hist || !hist.series.BTC) return;
+
+  const btcSeries = hist.series.BTC;
+  const labels = btcSeries.map(p => p.date);
+
+  const predMap = {};
+  if (pred) pred.forEach(p => { predMap[p.target_date] = p; });
+
+  const predData = labels.map(d => predMap[d] ? predMap[d].predicted_price : null);
+  const actualData = labels.map(d => predMap[d]?.actual_price ?? null);
+
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  if (priceChart) priceChart.destroy();
+  priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'BTC Close', data: btcSeries.map(p => p.value), borderColor: '#f7931a', tension: 0.3, pointRadius: 0, borderWidth: 2 },
+        { label: 'Predicted', data: predData, borderColor: '#58a6ff', borderDash: [4,4], tension: 0.3, pointRadius: 3, borderWidth: 1.5 },
+        { label: 'Actual', data: actualData, borderColor: '#3fb950', tension: 0.3, pointRadius: 3, borderWidth: 1.5 },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } } } }
+  });
+}
+
+async function loadOverlay() {
+  const days = document.getElementById('windowSelect').value;
+  const window = document.getElementById('corrWindow').value;
+  const data = await fetchJSON(`/api/correlations?days=${days}&window=${window}`);
+  if (!data) return;
+
+  corrData = data.correlation_matrix;
+  renderHeatmap(data.correlation_matrix);
+
+  const norm = document.getElementById('normSelect').value;
+  const allKeys = Object.keys(data.series);
+
+  // Build toggle buttons
+  const toggleRow = document.getElementById('seriesToggle');
+  toggleRow.innerHTML = '';
+  allKeys.forEach(key => {
+    const btn = document.createElement('button');
+    btn.className = 'toggle-btn' + (activeOverlaySeries.has(key) ? ' active' : '');
+    btn.textContent = key;
+    btn.style.borderColor = COLORS[key] || '#8b949e';
+    if (activeOverlaySeries.has(key)) btn.style.color = COLORS[key] || '#e6edf3';
+    btn.onclick = () => {
+      if (activeOverlaySeries.has(key)) { activeOverlaySeries.delete(key); btn.classList.remove('active'); btn.style.color = ''; }
+      else { activeOverlaySeries.add(key); btn.classList.add('active'); btn.style.color = COLORS[key] || '#e6edf3'; }
+      renderOverlay(data.series, norm);
+    };
+    toggleRow.appendChild(btn);
+  });
+
+  renderOverlay(data.series, norm);
+}
+
+function zscore(vals) {
+  const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+  const std = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length) || 1;
+  return vals.map(v=>(v-mean)/std);
+}
+
+function renderOverlay(series, norm) {
+  const activeSeries = Object.entries(series).filter(([k])=>activeOverlaySeries.has(k));
+  if (!activeSeries.length) return;
+
+  const allDates = [...new Set(activeSeries.flatMap(([,pts])=>pts.map(p=>p.date)))].sort();
+  const datasets = activeSeries.map(([key, pts]) => {
+    const map = Object.fromEntries(pts.map(p=>[p.date, p.value]));
+    let vals = allDates.map(d => map[d] ?? null);
+    if (norm === 'zscore') {
+      const clean = vals.filter(v=>v!=null);
+      const zs = zscore(clean);
+      let i=0; vals = vals.map(v=>v!=null ? zs[i++] : null);
+    }
+    return { label: key, data: vals, borderColor: COLORS[key]||'#8b949e', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0, borderWidth: 1.5 };
+  });
+
+  const ctx = document.getElementById('overlayChart').getContext('2d');
+  if (overlayChart) overlayChart.destroy();
+  overlayChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: allDates, datasets },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } } } }
+  });
+}
+
+function renderHeatmap(matrix) {
+  const el = document.getElementById('heatmap');
+  if (!matrix.BTC) { el.textContent = 'Insufficient data'; return; }
+  const entries = Object.entries(matrix.BTC).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = 'repeat(auto-fill, minmax(120px,1fr))';
+  el.innerHTML = entries.map(([key,corr])=>{
+    const c = Math.min(Math.max(corr,-1),1);
+    const r = c>0 ? Math.round(c*80) : 0;
+    const b = c<0 ? Math.round(-c*80) : 0;
+    const bg = `rgb(${r},${Math.round(Math.abs(c)*30)},${b})`;
+    return `<div class="heatmap-cell" style="background:${bg};color:#fff" title="BTC vs ${key}: ${corr.toFixed(3)}">
+      <span>${key}<br><b>${corr.toFixed(2)}</b></span></div>`;
+  }).join('');
+}
+
+async function loadSentiment() {
+  const data = await fetchJSON('/api/sentiment/daily?days=60');
+  if (!data || !data.length) return;
+  const labels = data.map(d=>d.date).reverse();
+  const vader = data.map(d=>d.vader_mean).reverse();
+  const finbert = data.map(d=>d.finbert_mean).reverse();
+  const ctx = document.getElementById('sentimentChart').getContext('2d');
+  if (sentimentChart) sentimentChart.destroy();
+  sentimentChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'VADER', data: vader, borderColor: '#58a6ff', tension: 0.4, pointRadius: 0, borderWidth: 2 },
+      { label: 'FinBERT', data: finbert, borderColor: '#f48fb1', tension: 0.4, pointRadius: 0, borderWidth: 2 },
+    ]},
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', maxTicksLimit: 8 }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } } } }
+  });
+}
+
+function loadImportanceChart(importances) {
+  if (!importances) return;
+  const sorted = Object.entries(importances).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  const ctx = document.getElementById('importanceChart').getContext('2d');
+  if (importanceChart) importanceChart.destroy();
+  importanceChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: sorted.map(([k])=>k),
+      datasets: [{ data: sorted.map(([,v])=>v), backgroundColor: '#f7931a88', borderColor: '#f7931a', borderWidth: 1 }]
+    },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } } } }
+  });
+}
+
+async function loadPipelineHealth() {
+  const el = document.getElementById('pipelineHealth');
+  const jobs = ['coingecko','yahoo','newsapi','onchain','sentiment_worker','feature_builder','trainer','predictor'];
+  // Approximate health from last ingestion timestamps via the health endpoint
+  const health = await fetchJSON('/api/health');
+  el.innerHTML = jobs.map(j => `
+    <div class="job-card">
+      <span class="status ${health ? 'ok' : 'unknown'}"></span>
+      <span>${j}</span>
+    </div>`).join('');
+}
+
+// Wire controls
+document.getElementById('windowSelect').addEventListener('change', loadOverlay);
+document.getElementById('normSelect').addEventListener('change', loadOverlay);
+document.getElementById('corrWindow').addEventListener('change', loadOverlay);
+
+// Initial load
+(async () => {
+  await Promise.all([loadHeader(), loadPriceChart(), loadOverlay(), loadSentiment(), loadPipelineHealth()]);
+})();
+
+// Auto-refresh every 5 minutes
+setInterval(async () => {
+  await Promise.all([loadHeader(), loadPriceChart(), loadOverlay(), loadSentiment(), loadPipelineHealth()]);
+}, 5 * 60 * 1000);
+</script>
+</body>
+</html>

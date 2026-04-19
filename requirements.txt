@@ -1,0 +1,49 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+httpx==0.27.2
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Data fetching
+requests==2.32.3
+yfinance==0.2.48
+tenacity==9.0.0
+
+# Data processing
+pandas==2.2.3
+numpy==2.1.3
+ta==0.11.0
+
+# Machine learning
+xgboost==2.1.3
+scikit-learn==1.5.2
+
+# Sentiment analysis
+vaderSentiment==3.3.2
+transformers==4.47.1
+# CPU-only torch — has ARM64 wheels on PyPI
+torch==2.5.1
+
+# Observability
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+structlog==24.4.0
+
+# Config / utilities
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+respx==0.21.1
+
+# Linting / typing (dev)
+ruff==0.8.4
+mypy==1.13.0

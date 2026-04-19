@@ -1,0 +1,163 @@
+version: "3.9"
+
+# All services share this network so they resolve each other by service name.
+networks:
+  btc_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  model_artifacts:
+  hf_cache:          # Hugging Face model weights — avoid re-downloading on restart
+  grafana_data:
+  prometheus_data:
+
+x-common-env: &common-env
+  env_file: .env
+  networks:
+    - btc_net
+
+x-python-base: &python-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  # Resource caps tuned for Raspberry Pi 5 (8 GB RAM).
+  # Adjust mem_limit and cpus for your host if running on a larger machine.
+  deploy:
+    resources:
+      limits:
+        memory: 512m
+        cpus: "1.0"
+
+services:
+  # ─── Database ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine  # Alpine variant has ARM64 builds
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-btcpipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-btcpipeline}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - btc_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-btcpipeline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ─── DB Migrations (runs once, exits) ────────────────────────────────────────
+  migrate:
+    <<: [*python-base, *common-env]
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ─── Historical backfill (runs once, exits) ───────────────────────────────────
+  backfill:
+    <<: [*python-base, *common-env]
+    command: ["python", "-m", "scripts.backfill"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        limits:
+          memory: 1g   # FinBERT needs headroom during backfill sentiment scoring
+
+  # ─── Scheduler (cron) ────────────────────────────────────────────────────────
+  scheduler:
+    <<: [*python-base, *common-env]
+    command: ["bash", "/app/src/scheduler/entrypoint.sh"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - model_artifacts:/app/models
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536m  # needs room for FinBERT + XGBoost training in same container
+          cpus: "2.0"
+
+  # ─── API ──────────────────────────────────────────────────────────────────────
+  api:
+    <<: [*python-base, *common-env]
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - model_artifacts:/app/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    networks:
+      - btc_net
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    networks:
+      - btc_net
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256m

@@ -1,0 +1,38 @@
+groups:
+  - name: btc_pipeline
+    rules:
+      - alert: JobFailed
+        expr: increase(btc_pipeline_job_runs_total{status="failure"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline job failed: {{ $labels.job }}"
+
+      - alert: DataStale
+        expr: time() - btc_pipeline_last_ingestion_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data source hasn't ingested in >30 min: {{ $labels.source }}"
+
+      - alert: APIHighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx error rate > 1%"
+
+      - alert: PredictionErrorHigh
+        expr: |
+          btc_pipeline_prediction_error_usd
+          > 2 * avg_over_time(btc_pipeline_prediction_error_usd[30d])
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prediction error is >2x the 30-day rolling average"
