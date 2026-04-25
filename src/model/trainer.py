@@ -88,9 +88,10 @@ def train() -> str:
         raise ValueError(f"Insufficient training data: {len(df)} rows (need ≥ 60)")
 
     df = df.sort_values("date").reset_index(drop=True)
+    df = df[np.isfinite(df[_TARGET_COL])].reset_index(drop=True)
 
     available_features = [c for c in _FEATURE_COLS if c in df.columns]
-    X = df[available_features].fillna(0)
+    X = df[available_features].fillna(0).replace([np.inf, -np.inf], 0)
     y = df[_TARGET_COL]
 
     # Chronological 80/20 split

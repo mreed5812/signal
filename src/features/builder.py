@@ -202,7 +202,8 @@ def build_features() -> pd.DataFrame:
     # Shift -1 so row T has the NEXT day's price (lookahead-safe: we only use
     # these as targets during training, never as input features).
     feat["target_next_close"] = btc["close"].shift(-1)
-    feat["target_next_log_return"] = np.log(btc["close"].shift(-1) / btc["close"])
+    ratio = btc["close"].shift(-1) / btc["close"]
+    feat["target_next_log_return"] = np.where(ratio > 0, np.log(ratio), np.nan)
 
     feat = feat.reset_index().rename(columns={"date": "date"})
     return feat
