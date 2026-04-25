@@ -134,10 +134,10 @@ def build_features() -> pd.DataFrame:
     market = _load_market_data()
 
     add_asset_return("ETH", "eth_return_1d", prices)
-    add_asset_return("GC=F", "gold_return_1d", market)
-    add_asset_return("DX-Y.NYB", "dxy_return_1d", market)
-    add_asset_return("^GSPC", "sp500_return_1d", market)
-    add_asset_return("^IXIC", "nasdaq_return_1d", market)
+    add_asset_return("XAU/USD", "gold_return_1d", market)
+    add_asset_return("UUP", "dxy_return_1d", market)
+    add_asset_return("SPY", "sp500_return_1d", market)
+    add_asset_return("QQQ", "nasdaq_return_1d", market)
 
     # 30-day rolling correlations
     btc_ret = btc["close"].pct_change()
@@ -149,7 +149,7 @@ def build_features() -> pd.DataFrame:
         .reindex(feat.index)
     )
     gold_ret = (
-        market[market["symbol"] == "GC=F"]
+        market[market["symbol"] == "XAU/USD"]
         .set_index("date")["close"]
         .astype(float)
         .pct_change()

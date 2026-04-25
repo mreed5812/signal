@@ -5,15 +5,15 @@ PATH=/usr/local/bin:/usr/bin:/bin
 # All times UTC.
 
 # ── Ingestion (every 15 min, staggered) ──────────────────────────────────────
-0,15,30,45 * * * *   python3 -m src.sources.coingecko_runner  >> /var/log/cron.log 2>&1
-0 22 * * 1-5         python3 -m src.sources.yahoo_runner      >> /var/log/cron.log 2>&1
-4,19,34,49 * * * *   python3 -m src.sources.newsapi_runner    >> /var/log/cron.log 2>&1
-6,21,36,51 * * * *   python3 -m src.sources.onchain_runner    >> /var/log/cron.log 2>&1
+0,15,30,45 * * * *   . /etc/container_env; python3 -m src.sources.coingecko_runner  >> /var/log/cron.log 2>&1
+0 22 * * 1-5         . /etc/container_env; python3 -m src.sources.yahoo_runner      >> /var/log/cron.log 2>&1
+4,19,34,49 * * * *   . /etc/container_env; python3 -m src.sources.newsapi_runner    >> /var/log/cron.log 2>&1
+6,21,36,51 * * * *   . /etc/container_env; python3 -m src.sources.onchain_runner    >> /var/log/cron.log 2>&1
 
 # ── Sentiment (every 15 min, offset 8 min after ingestion) ──────────────────
-8,23,38,53 * * * *   python3 -m src.sentiment.worker         >> /var/log/cron.log 2>&1
+8,23,38,53 * * * *   . /etc/container_env; python3 -m src.sentiment.worker         >> /var/log/cron.log 2>&1
 
 # ── Daily pipeline ────────────────────────────────────────────────────────────
-30 0 * * *           python3 -m src.features.builder         >> /var/log/cron.log 2>&1
-0  1 * * *           python3 -m src.model.trainer            >> /var/log/cron.log 2>&1
-30 1 * * *           python3 -m src.model.predictor          >> /var/log/cron.log 2>&1
+30 0 * * *           . /etc/container_env; python3 -m src.features.builder         >> /var/log/cron.log 2>&1
+0  1 * * *           . /etc/container_env; python3 -m src.model.trainer            >> /var/log/cron.log 2>&1
+30 1 * * *           . /etc/container_env; python3 -m src.model.predictor          >> /var/log/cron.log 2>&1
