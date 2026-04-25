@@ -7,7 +7,7 @@ To add a new source:
 """
 
 import abc
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -53,8 +53,8 @@ class DataSource(abc.ABC):
         start_ts = time.time()
         try:
             if historical:
-                start_dt = datetime(2019, 1, 1, tzinfo=timezone.utc)
                 end_dt = datetime.now(tz=timezone.utc)
+                start_dt = end_dt - timedelta(days=180)
                 df = self.fetch_historical(start_dt, end_dt)
             else:
                 df = self.fetch_latest()
