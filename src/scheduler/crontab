@@ -1,4 +1,5 @@
 PATH=/usr/local/bin:/usr/bin:/bin
+PYTHONPATH=/app
 
 # BTC Pipeline crontab
 # Staggered 15-minute ingestion to avoid concurrent API calls.
