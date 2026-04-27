@@ -170,14 +170,14 @@ async function loadHeader() {
 }
 
 async function loadPriceChart() {
-  const [hist, pred] = await Promise.all([
-    fetchJSON('/api/correlations?days=90&window=30'),
+  const [btcHist, pred] = await Promise.all([
+    fetchJSON('/api/price/history?days=90'),
     fetchJSON('/api/prediction/history?days=90'),
   ]);
-  if (!hist || !hist.series.BTC) return;
+  if (!btcHist || !btcHist.dates.length) return;
 
-  const btcSeries = hist.series.BTC;
-  const labels = btcSeries.map(p => p.date);
+  const labels = btcHist.dates;
+  const btcData = btcHist.prices;
 
   const predMap = {};
   if (pred) pred.forEach(p => { predMap[p.target_date] = p; });
@@ -192,12 +192,19 @@ async function loadPriceChart() {
     data: {
       labels,
       datasets: [
-        { label: 'BTC Close', data: btcSeries.map(p => p.value), borderColor: '#f7931a', tension: 0.3, pointRadius: 0, borderWidth: 2 },
+        { label: 'BTC Close', data: btcData, borderColor: '#f7931a', tension: 0.3, pointRadius: 0, borderWidth: 2 },
         { label: 'Predicted', data: predData, borderColor: '#58a6ff', borderDash: [4,4], tension: 0.3, pointRadius: 3, borderWidth: 1.5 },
         { label: 'Actual', data: actualData, borderColor: '#3fb950', tension: 0.3, pointRadius: 3, borderWidth: 1.5 },
       ]
     },
-    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } } } }
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#e6edf3' } } },
+      scales: {
+        x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', callback: v => '$' + v.toLocaleString() }, grid: { color: '#21262d' } }
+      }
+    }
   });
 }
 
